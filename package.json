@@ -11,12 +11,6 @@
     "express": "^4.18.2",
     "body-parser": "^1.20.2",
     "ws": "^8.16.0",
-    // Use a recent OpenAI SDK version that supports webhook helpers. Version
-    // 5.22.0 (or later) exposes the `.webhooks` property on the client so
-    // that `webhooks.unwrap()` can be used to verify incoming webhook
-    // signatures. Earlier 4.x releases do not define this property, which
-    // caused `client.webhooks` to be undefined in production. See the
-    // documentation for details【859407725996152†L20-L23】.
     "openai": "^5.22.0",
     "dotenv": "^16.0.3",
     "node-fetch": "^3.3.2"
