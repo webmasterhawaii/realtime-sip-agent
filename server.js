@@ -29,18 +29,10 @@ const client = new OpenAI({
   webhookSecret: WEBHOOK_SECRET,
 });
 
-// If the webhook secret was not provided or is empty, the OpenAI SDK does
-// not initialize the `webhooks` helper. Attempting to call `client.webhooks.unwrap`
-// will therefore throw a TypeError. To aid debugging, exit immediately if
-// `client.webhooks` is undefined. This will produce a clear error message
-// instead of waiting for a request to trigger the failure.
-if (!client.webhooks) {
-  console.error(
-    'OpenAI client.webhooks is undefined. Ensure that OPENAI_WEBHOOK_SECRET is set ' +
-    'and passed to the client as `webhookSecret`. See the deployment guide for details.'
-  );
-  process.exit(1);
-}
+// The `openai` SDK >=5 defines `client.webhooks` unconditionally, so
+// there is no need to guard against it being undefined. Signature
+// verification will throw if the webhook secret is missing or
+// incorrect. See the documentation【859407725996152†L20-L23】 for details.
 
 /*
  * Build the call acceptance payload. This payload tells the Realtime API how
