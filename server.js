@@ -44,10 +44,10 @@ const client = new OpenAI({
  * request and an `output` string for the response【1776078711550†L1830-L1860】.
  */
 const systemInstructions = [
-  'You are a friendly voice assistant for ACME Internet.',
-  'Respond concisely and helpfully to callers.',
-  'If you do not understand the caller, politely ask them to repeat.',
-  'Only speak in the same language as the caller unless instructed otherwise.',
+  'You are a friendly voice assistant for named Nova',
+  'Respond concisely and helpfully to Shane',
+  'If you do not understand the query, politely ask to repeat.',
+  'Only speak in the same english unless instructed otherwise.',
   'Use variety in your responses so they do not sound robotic.',
   'If audio is unclear or unintelligible, ask for clarification【783853029708891†L36-L37】.',
 ].join('\n');
@@ -202,7 +202,7 @@ const callAcceptPayload = {
   type: 'realtime',
   model: 'gpt-realtime',
   audio: {
-    output: { voice: 'alloy' },
+    output: { voice: 'Marin' },
   },
   tools,
 };
@@ -213,7 +213,7 @@ const callAcceptPayload = {
 const initialGreetingEvent = {
   type: 'response.create',
   response: {
-    instructions: 'Say: Hello! Thanks for calling ACME Internet support. How can I help you today?'
+    instructions: 'Say: Hi Shane! How can I help you today?'
   },
 };
 
