@@ -44,10 +44,10 @@ const client = new OpenAI({
  * request and an `output` string for the response【1776078711550†L1830-L1860】.
  */
 const systemInstructions = [
-  'You are a friendly voice assistant for named Nova',
-  'Respond concisely and helpfully to Shane',
-  'If you do not understand the query, politely ask to repeat.',
-  'Only speak in the same english unless instructed otherwise.',
+  'You are a friendly voice assistant for ACME Internet.',
+  'Respond concisely and helpfully to callers.',
+  'If you do not understand the caller, politely ask them to repeat.',
+  'Only speak in the same language as the caller unless instructed otherwise.',
   'Use variety in your responses so they do not sound robotic.',
   'If audio is unclear or unintelligible, ask for clarification【783853029708891†L36-L37】.',
 ].join('\n');
@@ -202,7 +202,7 @@ const callAcceptPayload = {
   type: 'realtime',
   model: 'gpt-realtime',
   audio: {
-    output: { voice: 'marin' },
+    output: { voice: 'alloy' },
   },
   tools,
 };
@@ -213,7 +213,7 @@ const callAcceptPayload = {
 const initialGreetingEvent = {
   type: 'response.create',
   response: {
-    instructions: 'Say: Hi Shane! How can I help you today?'
+    instructions: 'Say: Hello! Thanks for calling ACME Internet support. How can I help you today?'
   },
 };
 
@@ -270,34 +270,6 @@ async function handleFunctionCall(item, ws) {
   ws.send(JSON.stringify(outputEvent));
 }
 
-/**
- * Handles an MCP approval request. When the model tries to call an MCP tool
- * and the tool’s `require_approval` setting is not "never", the API will
- * generate an `mcp_approval_request` item. To proceed with the tool call you
- * must send an `mcp_approval_response` item indicating whether you approve.
- * This helper automatically approves the request when AUTO_APPROVE_MCP is set
- * to "true". Otherwise, it logs the request and does nothing, leaving the
- * tool call unapproved.
- *
- * @param {object} item The mcp_approval_request item from the model
- * @param {WebSocket} ws The WebSocket connection
- */
-function handleMcpApprovalRequest(item, ws) {
-  const autoApprove = process.env.AUTO_APPROVE_MCP?.toLowerCase?.() === 'true';
-  if (!autoApprove) {
-    console.log('Received MCP approval request but AUTO_APPROVE_MCP is not enabled:', item);
-    return;
-  }
-  const responseEvent = {
-    type: 'conversation.item.create',
-    item: {
-      type: 'mcp_approval_response',
-      approval_request_id: item?.id,
-      approve: true,
-    },
-  };
-  ws.send(JSON.stringify(responseEvent));
-}
 
 /**
  * Opens and manages a WebSocket connection to the Realtime API. This
@@ -336,12 +308,10 @@ async function websocketTask(uri) {
         await handleFunctionCall(item, ws);
         return;
       }
-      // Auto‑approve MCP tool calls when configured. Without approval the tool
-      // call will not execute, so this improves latency during development【575803211680614†screenshot】.
-      if (item?.type === 'mcp_approval_request') {
-        handleMcpApprovalRequest(item, ws);
-        return;
-      }
+      // Previously, auto-approval for MCP tool calls could be enabled with an
+      // AUTO_APPROVE_MCP environment flag. This behaviour has been removed to
+      // ensure that calls to remote MCP tools require explicit approval or
+      // follow the default approval policy configured in your OpenAI dashboard.
     }
   });
 
