@@ -202,7 +202,7 @@ const callAcceptPayload = {
   type: 'realtime',
   model: 'gpt-realtime',
   audio: {
-    output: { voice: 'Marin' },
+    output: { voice: 'marin' },
   },
   tools,
 };
