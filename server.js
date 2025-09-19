@@ -52,12 +52,20 @@ const systemInstructions = [
   'If audio is unclear or unintelligible, ask for clarification【783853029708891†L36-L37】.',
 ].join('\n');
 
-// Define the tools (functions) available to the model. These follow the
-// RealtimeFunctionTool schema: each tool has a name, description and JSON
-// schema for its parameters. When the model calls a function, the server
-// receives a `function_call` item and must respond with a `function_call_output`
-// item containing the result【1776078711550†L1830-L1860】.
-const tools = [
+// -----------------------------------------------------------------------------
+// TOOL DEFINITIONS
+//
+// In the Realtime API, tools allow the model to call external functions
+// (functions you implement locally) or remote services (via MCP servers and
+// connectors). The model decides when to call these tools based on its
+// reasoning chain. To support additional capabilities like web search or
+// third‑party integrations, define those tools in the `tools` array below.
+//
+// Built‑in function tools. These are local JavaScript functions that run in
+// this server. When the model calls a function, a `function_call` item is
+// emitted over the WebSocket. The server must execute the function and return
+// a `function_call_output` item with the result【1776078711550†L1830-L1860】.
+const functionTools = [
   {
     type: 'function',
     name: 'get_current_time',
@@ -80,6 +88,115 @@ const tools = [
   },
 ];
 
+// Additional tools can be conditionally enabled via environment variables.
+// These include the web search tool, remote MCP servers and OpenAI connectors.
+const additionalTools = [];
+
+// Web search tool configuration. Web search allows the model to query the
+// internet for up‑to‑date information. To enable it, set
+// WEB_SEARCH_ENABLED=true in your environment. You can optionally restrict
+// searches to a list of domains using WEB_SEARCH_ALLOWED_DOMAINS (comma‑
+// separated)【880246847596441†L340-L347】 and provide an approximate user
+// location via WEB_SEARCH_COUNTRY, WEB_SEARCH_CITY, WEB_SEARCH_REGION and
+// WEB_SEARCH_TIMEZONE【880246847596441†L521-L534】. See the official docs for
+// details on domain filtering and user location fields.
+if (process.env.WEB_SEARCH_ENABLED?.toLowerCase?.() === 'true') {
+  const webTool = { type: 'web_search' };
+  // Domain allow‑list. When provided, restricts searches to the specified
+  // domains and their subdomains【880246847596441†L340-L347】.
+  if (process.env.WEB_SEARCH_ALLOWED_DOMAINS) {
+    const domains = process.env.WEB_SEARCH_ALLOWED_DOMAINS.split(',').map((d) => d.trim()).filter(Boolean);
+    if (domains.length > 0) {
+      webTool.filters = { allowed_domains: domains };
+    }
+  }
+  // User location hint. This helps the model tailor results by geography【880246847596441†L521-L534】.
+  const country = process.env.WEB_SEARCH_COUNTRY;
+  const city = process.env.WEB_SEARCH_CITY;
+  const region = process.env.WEB_SEARCH_REGION;
+  const timezone = process.env.WEB_SEARCH_TIMEZONE;
+  if (country || city || region || timezone) {
+    webTool.user_location = {
+      type: 'approximate',
+      ...(country ? { country } : {}),
+      ...(city ? { city } : {}),
+      ...(region ? { region } : {}),
+      ...(timezone ? { timezone } : {}),
+    };
+  }
+  additionalTools.push(webTool);
+}
+
+// Remote MCP server configuration. Remote MCP servers expose tools over the
+// internet that the model can call. To use a remote MCP server, set
+// MCP_SERVER_URL to the server’s URL. Optionally provide MCP_SERVER_LABEL
+// (a human friendly name), MCP_AUTHORIZATION (an OAuth access token)【173302511999189†screenshot】,
+// MCP_REQUIRE_APPROVAL (e.g. "never" to auto‑approve all calls)【575803211680614†screenshot】,
+// and MCP_ALLOWED_TOOLS (comma‑separated list)【537303462688410†screenshot】.
+if (process.env.MCP_SERVER_URL) {
+  const mcpTool = {
+    type: 'mcp',
+    server_label: process.env.MCP_SERVER_LABEL || 'remote_mcp',
+    server_url: process.env.MCP_SERVER_URL,
+  };
+  if (process.env.MCP_AUTHORIZATION) {
+    mcpTool.authorization = process.env.MCP_AUTHORIZATION;
+  }
+  if (process.env.MCP_REQUIRE_APPROVAL) {
+    // Acceptable values: 'always', 'never', or an object mapping tool names to
+    // approval policy. See docs【575803211680614†screenshot】.
+    try {
+      // Try to parse as JSON; if fails, treat as string (e.g. "never").
+      mcpTool.require_approval = JSON.parse(process.env.MCP_REQUIRE_APPROVAL);
+    } catch {
+      mcpTool.require_approval = process.env.MCP_REQUIRE_APPROVAL;
+    }
+  }
+  if (process.env.MCP_ALLOWED_TOOLS) {
+    mcpTool.allowed_tools = process.env.MCP_ALLOWED_TOOLS.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+  additionalTools.push(mcpTool);
+}
+
+// Connector configuration. Connectors are OpenAI‑hosted MCP wrappers for
+// services like Google Calendar, Gmail and Dropbox【200056371336966†screenshot】. To use a
+// connector, set CONNECTOR_ID (e.g. "connector_googlecalendar"). You can also
+// specify CONNECTOR_LABEL (optional), CONNECTOR_AUTHORIZATION (OAuth access
+// token), CONNECTOR_REQUIRE_APPROVAL and CONNECTOR_ALLOWED_TOOLS similar to
+// the remote MCP server configuration【749830989574305†screenshot】.
+if (process.env.CONNECTOR_ID) {
+  const connTool = {
+    type: 'mcp',
+    server_label: process.env.CONNECTOR_LABEL || process.env.CONNECTOR_ID,
+    connector_id: process.env.CONNECTOR_ID,
+  };
+  if (process.env.CONNECTOR_AUTHORIZATION) {
+    connTool.authorization = process.env.CONNECTOR_AUTHORIZATION;
+  }
+  if (process.env.CONNECTOR_REQUIRE_APPROVAL) {
+    try {
+      connTool.require_approval = JSON.parse(process.env.CONNECTOR_REQUIRE_APPROVAL);
+    } catch {
+      connTool.require_approval = process.env.CONNECTOR_REQUIRE_APPROVAL;
+    }
+  }
+  if (process.env.CONNECTOR_ALLOWED_TOOLS) {
+    connTool.allowed_tools = process.env.CONNECTOR_ALLOWED_TOOLS.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+  additionalTools.push(connTool);
+}
+
+// Combine all tools into a single array. The model will see function tools
+// (implemented locally) and any additional tools configured above. The order of
+// tools doesn’t matter; however, grouping them makes it easier to reason about
+// your agent’s capabilities.
+const tools = [...functionTools, ...additionalTools];
+
+// Build the call acceptance payload. The payload tells the Realtime API how
+// to configure the session: choose the model and voice, provide system‑level
+// instructions, and declare any tools the model may call. Including the
+// dynamically built `tools` array here exposes your function tools, web
+// search, remote MCP servers and connectors to the model【793223803248159†L264-L324】.
 const callAcceptPayload = {
   instructions: systemInstructions,
   type: 'realtime',
@@ -154,6 +271,35 @@ async function handleFunctionCall(item, ws) {
 }
 
 /**
+ * Handles an MCP approval request. When the model tries to call an MCP tool
+ * and the tool’s `require_approval` setting is not "never", the API will
+ * generate an `mcp_approval_request` item. To proceed with the tool call you
+ * must send an `mcp_approval_response` item indicating whether you approve.
+ * This helper automatically approves the request when AUTO_APPROVE_MCP is set
+ * to "true". Otherwise, it logs the request and does nothing, leaving the
+ * tool call unapproved.
+ *
+ * @param {object} item The mcp_approval_request item from the model
+ * @param {WebSocket} ws The WebSocket connection
+ */
+function handleMcpApprovalRequest(item, ws) {
+  const autoApprove = process.env.AUTO_APPROVE_MCP?.toLowerCase?.() === 'true';
+  if (!autoApprove) {
+    console.log('Received MCP approval request but AUTO_APPROVE_MCP is not enabled:', item);
+    return;
+  }
+  const responseEvent = {
+    type: 'conversation.item.create',
+    item: {
+      type: 'mcp_approval_response',
+      approval_request_id: item?.id,
+      approve: true,
+    },
+  };
+  ws.send(JSON.stringify(responseEvent));
+}
+
+/**
  * Opens and manages a WebSocket connection to the Realtime API. This
  * function sends an initial greeting, listens for messages (including
  * function call requests) and logs any errors or closure events.
@@ -183,8 +329,19 @@ async function websocketTask(uri) {
       return;
     }
     // Handle function call requests from the model
-    if (event?.type === 'conversation.item.created' && event?.item?.type === 'function_call') {
-      await handleFunctionCall(event.item, ws);
+    if (event?.type === 'conversation.item.created') {
+      const item = event?.item;
+      // Handle function calls from the model
+      if (item?.type === 'function_call') {
+        await handleFunctionCall(item, ws);
+        return;
+      }
+      // Auto‑approve MCP tool calls when configured. Without approval the tool
+      // call will not execute, so this improves latency during development【575803211680614†screenshot】.
+      if (item?.type === 'mcp_approval_request') {
+        handleMcpApprovalRequest(item, ws);
+        return;
+      }
     }
   });
 
