@@ -36,8 +36,8 @@ const client = new OpenAI({
 // instead of waiting for a request to trigger the failure.
 if (!client.webhooks) {
   console.error(
-    'OpenAI client.webhooks is undefined. Ensure that OPENAI_WEBHOOK_SECRET is set '\
-    + 'and passed to the client as `webhookSecret`. See the deployment guide for details.'
+    'OpenAI client.webhooks is undefined. Ensure that OPENAI_WEBHOOK_SECRET is set ' +
+    'and passed to the client as `webhookSecret`. See the deployment guide for details.'
   );
   process.exit(1);
 }
