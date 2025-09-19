@@ -1,0 +1,18 @@
+{
+  "name": "realtime-sip-agent",
+  "version": "1.0.0",
+  "description": "A Node.js server that handles OpenAI Realtime API webhooks and WebSocket connections for SIP calls via Twilio.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "ws": "^8.16.0",
+    "openai": "^4.31.0",
+    "dotenv": "^16.0.3",
+    "node-fetch": "^3.3.2"
+  }
+}
