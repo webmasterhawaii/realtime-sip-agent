@@ -127,64 +127,12 @@ if (process.env.WEB_SEARCH_ENABLED?.toLowerCase?.() === 'true') {
   additionalTools.push(webTool);
 }
 
-// Remote MCP server configuration. Remote MCP servers expose tools over the
-// internet that the model can call. To use a remote MCP server, set
-// MCP_SERVER_URL to the server’s URL. Optionally provide MCP_SERVER_LABEL
-// (a human friendly name), MCP_AUTHORIZATION (an OAuth access token)【173302511999189†screenshot】,
-// MCP_REQUIRE_APPROVAL (e.g. "never" to auto‑approve all calls)【575803211680614†screenshot】,
-// and MCP_ALLOWED_TOOLS (comma‑separated list)【537303462688410†screenshot】.
-if (process.env.MCP_SERVER_URL) {
-  const mcpTool = {
-    type: 'mcp',
-    server_label: process.env.MCP_SERVER_LABEL || 'remote_mcp',
-    server_url: process.env.MCP_SERVER_URL,
-  };
-  if (process.env.MCP_AUTHORIZATION) {
-    mcpTool.authorization = process.env.MCP_AUTHORIZATION;
-  }
-  if (process.env.MCP_REQUIRE_APPROVAL) {
-    // Acceptable values: 'always', 'never', or an object mapping tool names to
-    // approval policy. See docs【575803211680614†screenshot】.
-    try {
-      // Try to parse as JSON; if fails, treat as string (e.g. "never").
-      mcpTool.require_approval = JSON.parse(process.env.MCP_REQUIRE_APPROVAL);
-    } catch {
-      mcpTool.require_approval = process.env.MCP_REQUIRE_APPROVAL;
-    }
-  }
-  if (process.env.MCP_ALLOWED_TOOLS) {
-    mcpTool.allowed_tools = process.env.MCP_ALLOWED_TOOLS.split(',').map((t) => t.trim()).filter(Boolean);
-  }
-  additionalTools.push(mcpTool);
-}
-
-// Connector configuration. Connectors are OpenAI‑hosted MCP wrappers for
-// services like Google Calendar, Gmail and Dropbox【200056371336966†screenshot】. To use a
-// connector, set CONNECTOR_ID (e.g. "connector_googlecalendar"). You can also
-// specify CONNECTOR_LABEL (optional), CONNECTOR_AUTHORIZATION (OAuth access
-// token), CONNECTOR_REQUIRE_APPROVAL and CONNECTOR_ALLOWED_TOOLS similar to
-// the remote MCP server configuration【749830989574305†screenshot】.
-if (process.env.CONNECTOR_ID) {
-  const connTool = {
-    type: 'mcp',
-    server_label: process.env.CONNECTOR_LABEL || process.env.CONNECTOR_ID,
-    connector_id: process.env.CONNECTOR_ID,
-  };
-  if (process.env.CONNECTOR_AUTHORIZATION) {
-    connTool.authorization = process.env.CONNECTOR_AUTHORIZATION;
-  }
-  if (process.env.CONNECTOR_REQUIRE_APPROVAL) {
-    try {
-      connTool.require_approval = JSON.parse(process.env.CONNECTOR_REQUIRE_APPROVAL);
-    } catch {
-      connTool.require_approval = process.env.CONNECTOR_REQUIRE_APPROVAL;
-    }
-  }
-  if (process.env.CONNECTOR_ALLOWED_TOOLS) {
-    connTool.allowed_tools = process.env.CONNECTOR_ALLOWED_TOOLS.split(',').map((t) => t.trim()).filter(Boolean);
-  }
-  additionalTools.push(connTool);
-}
+// MCP tools (remote servers and connectors) have been disabled.  Previously,
+// you could configure remote MCP servers and OpenAI‑hosted connectors via
+// environment variables such as MCP_SERVER_URL or CONNECTOR_ID.  In order to
+// prevent unexpected approval requests or premature call termination, these
+// configuration blocks have been removed.  Only local function tools and
+// optional web search are supported now.
 
 // Combine all tools into a single array. The model will see function tools
 // (implemented locally) and any additional tools configured above. The order of
