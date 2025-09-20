@@ -320,7 +320,11 @@ app.post('/', async (req, res) => {
       }
       // Open the WebSocket connection to handle the conversation
       const wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
-      connectWithDelay(wssUrl, 0);
+      // Wait a short period before opening the WebSocket.  Opening too soon
+      // after the accept request can result in a 404 response from the server
+      // because the call session is not yet ready.  Use the default delay
+      // defined in connectWithDelay (1 second).
+      connectWithDelay(wssUrl);
       // Return 200 OK and include authorization header as required by OpenAI
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
       return res.sendStatus(200);
