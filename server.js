@@ -52,20 +52,12 @@ const systemInstructions = [
   'If audio is unclear or unintelligible, ask for clarification【783853029708891†L36-L37】.',
 ].join('\n');
 
-// -----------------------------------------------------------------------------
-// TOOL DEFINITIONS
-//
-// In the Realtime API, tools allow the model to call external functions
-// (functions you implement locally) or remote services (via MCP servers and
-// connectors). The model decides when to call these tools based on its
-// reasoning chain. To support additional capabilities like web search or
-// third‑party integrations, define those tools in the `tools` array below.
-//
-// Built‑in function tools. These are local JavaScript functions that run in
-// this server. When the model calls a function, a `function_call` item is
-// emitted over the WebSocket. The server must execute the function and return
-// a `function_call_output` item with the result【1776078711550†L1830-L1860】.
-const functionTools = [
+// Define the tools (functions) available to the model. These follow the
+// RealtimeFunctionTool schema: each tool has a name, description and JSON
+// schema for its parameters. When the model calls a function, the server
+// receives a `function_call` item and must respond with a `function_call_output`
+// item containing the result【1776078711550†L1830-L1860】.
+const tools = [
   {
     type: 'function',
     name: 'get_current_time',
@@ -88,63 +80,6 @@ const functionTools = [
   },
 ];
 
-// Additional tools can be conditionally enabled via environment variables.
-// These include the web search tool, remote MCP servers and OpenAI connectors.
-const additionalTools = [];
-
-// Web search tool configuration. Web search allows the model to query the
-// internet for up‑to‑date information. To enable it, set
-// WEB_SEARCH_ENABLED=true in your environment. You can optionally restrict
-// searches to a list of domains using WEB_SEARCH_ALLOWED_DOMAINS (comma‑
-// separated)【880246847596441†L340-L347】 and provide an approximate user
-// location via WEB_SEARCH_COUNTRY, WEB_SEARCH_CITY, WEB_SEARCH_REGION and
-// WEB_SEARCH_TIMEZONE【880246847596441†L521-L534】. See the official docs for
-// details on domain filtering and user location fields.
-if (process.env.WEB_SEARCH_ENABLED?.toLowerCase?.() === 'true') {
-  const webTool = { type: 'web_search' };
-  // Domain allow‑list. When provided, restricts searches to the specified
-  // domains and their subdomains【880246847596441†L340-L347】.
-  if (process.env.WEB_SEARCH_ALLOWED_DOMAINS) {
-    const domains = process.env.WEB_SEARCH_ALLOWED_DOMAINS.split(',').map((d) => d.trim()).filter(Boolean);
-    if (domains.length > 0) {
-      webTool.filters = { allowed_domains: domains };
-    }
-  }
-  // User location hint. This helps the model tailor results by geography【880246847596441†L521-L534】.
-  const country = process.env.WEB_SEARCH_COUNTRY;
-  const city = process.env.WEB_SEARCH_CITY;
-  const region = process.env.WEB_SEARCH_REGION;
-  const timezone = process.env.WEB_SEARCH_TIMEZONE;
-  if (country || city || region || timezone) {
-    webTool.user_location = {
-      type: 'approximate',
-      ...(country ? { country } : {}),
-      ...(city ? { city } : {}),
-      ...(region ? { region } : {}),
-      ...(timezone ? { timezone } : {}),
-    };
-  }
-  additionalTools.push(webTool);
-}
-
-// MCP tools (remote servers and connectors) have been disabled.  Previously,
-// you could configure remote MCP servers and OpenAI‑hosted connectors via
-// environment variables such as MCP_SERVER_URL or CONNECTOR_ID.  In order to
-// prevent unexpected approval requests or premature call termination, these
-// configuration blocks have been removed.  Only local function tools and
-// optional web search are supported now.
-
-// Combine all tools into a single array. The model will see function tools
-// (implemented locally) and any additional tools configured above. The order of
-// tools doesn’t matter; however, grouping them makes it easier to reason about
-// your agent’s capabilities.
-const tools = [...functionTools, ...additionalTools];
-
-// Build the call acceptance payload. The payload tells the Realtime API how
-// to configure the session: choose the model and voice, provide system‑level
-// instructions, and declare any tools the model may call. Including the
-// dynamically built `tools` array here exposes your function tools, web
-// search, remote MCP servers and connectors to the model【793223803248159†L264-L324】.
 const callAcceptPayload = {
   instructions: systemInstructions,
   type: 'realtime',
@@ -218,7 +153,6 @@ async function handleFunctionCall(item, ws) {
   ws.send(JSON.stringify(outputEvent));
 }
 
-
 /**
  * Opens and manages a WebSocket connection to the Realtime API. This
  * function sends an initial greeting, listens for messages (including
@@ -249,17 +183,8 @@ async function websocketTask(uri) {
       return;
     }
     // Handle function call requests from the model
-    if (event?.type === 'conversation.item.created') {
-      const item = event?.item;
-      // Handle function calls from the model
-      if (item?.type === 'function_call') {
-        await handleFunctionCall(item, ws);
-        return;
-      }
-      // Previously, auto-approval for MCP tool calls could be enabled with an
-      // AUTO_APPROVE_MCP environment flag. This behaviour has been removed to
-      // ensure that calls to remote MCP tools require explicit approval or
-      // follow the default approval policy configured in your OpenAI dashboard.
+    if (event?.type === 'conversation.item.created' && event?.item?.type === 'function_call') {
+      await handleFunctionCall(event.item, ws);
     }
   });
 
@@ -320,11 +245,7 @@ app.post('/', async (req, res) => {
       }
       // Open the WebSocket connection to handle the conversation
       const wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
-      // Wait a short period before opening the WebSocket.  Opening too soon
-      // after the accept request can result in a 404 response from the server
-      // because the call session is not yet ready.  Use the default delay
-      // defined in connectWithDelay (1 second).
-      connectWithDelay(wssUrl);
+      connectWithDelay(wssUrl, 0);
       // Return 200 OK and include authorization header as required by OpenAI
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
       return res.sendStatus(200);
