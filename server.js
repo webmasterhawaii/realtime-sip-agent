@@ -35,7 +35,7 @@ const systemInstructions = [
 
 const callAcceptPayload = {
   type: 'realtime',
-  model: 'gpt-4o-realtime-preview-2024-12-17',
+  model: 'gpt-4o-realtime-preview-latest',   // ✅ SIP-compatible model
   instructions: systemInstructions,
   audio: { output: { voice: 'alloy' } },
   tools: [
