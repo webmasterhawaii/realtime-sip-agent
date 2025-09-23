@@ -17,14 +17,13 @@ if (!WEBHOOK_SECRET || !OPENAI_API_KEY) {
   process.exit(1);
 }
 
-// OpenAI client (for webhook signature verify)
 const client = new OpenAI({
   apiKey: OPENAI_API_KEY,
   webhookSecret: WEBHOOK_SECRET,
 });
 
 // ─────────────────────────────────────────────
-// Session config (accept payload) — Web Search only
+// Session config (Web Search only)
 // ─────────────────────────────────────────────
 const systemInstructions = [
   'You are a friendly voice assistant for ACME Internet.',
@@ -50,7 +49,6 @@ const callAcceptPayload = {
   tools,
 };
 
-// Optional greeting once WS opens
 const initialGreetingEvent = {
   type: 'response.create',
   response: {
@@ -61,12 +59,12 @@ const initialGreetingEvent = {
 // ─────────────────────────────────────────────
 // WebSocket
 // ─────────────────────────────────────────────
-async function websocketTask(wssUrl) {
+async function websocketTask(wssUrl, authToken) {
   const ws = new WebSocket(wssUrl, {
     headers: {
       origin: 'https://api.openai.com',
       'OpenAI-Beta': 'realtime=v1',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${authToken}`,
     },
   });
 
@@ -91,26 +89,21 @@ async function websocketTask(wssUrl) {
   );
 }
 
-function connectWithDelay(wssUrl, delayMs = 1000) {
-  // Give OpenAI a moment to finalize session after accept
+function connectWithDelay(wssUrl, authToken, delayMs = 1000) {
   setTimeout(() => {
-    websocketTask(wssUrl).catch((e) => console.error('WS connect failed:', e));
+    websocketTask(wssUrl, authToken).catch((e) => console.error('WS connect failed:', e));
   }, delayMs);
 }
 
 // ─────────────────────────────────────────────
 // Express
-// IMPORTANT: raw JSON body for signature verify
 // ─────────────────────────────────────────────
 const app = express();
-app.use(bodyParser.raw({ type: 'application/json' })); // tighter than */*
+app.use(bodyParser.raw({ type: 'application/json' }));
 
-// NOTE: If your OpenAI console points to /session, change to app.post('/session', …)
 app.post('/', async (req, res) => {
   try {
     const rawBody = req.body.toString('utf8');
-
-    // Verify and unwrap event
     const event = await client.webhooks.unwrap(rawBody, req.headers);
     const type = event?.type;
     console.log('🔔 Webhook event:', type);
@@ -119,12 +112,9 @@ app.post('/', async (req, res) => {
       const callId = event?.data?.call_id;
       console.log('📞 Incoming call_id:', callId);
 
-      if (!callId) {
-        console.error('No call_id in incoming event');
-        return res.status(400).send('Missing call_id');
-      }
+      if (!callId) return res.status(400).send('Missing call_id');
 
-      // Accept ASAP (do as little work before this as possible)
+      // Accept
       const acceptUrl = `https://api.openai.com/v1/realtime/calls/${encodeURIComponent(callId)}/accept`;
       const acceptResp = await fetch(acceptUrl, {
         method: 'POST',
@@ -135,26 +125,33 @@ app.post('/', async (req, res) => {
         body: JSON.stringify(callAcceptPayload),
       });
 
+      const acceptData = await acceptResp.json().catch(() => ({}));
+      console.log('📦 ACCEPT response JSON:', acceptData);
+
       if (!acceptResp.ok) {
-        const text = await acceptResp.text().catch(() => '');
-        console.error('❌ ACCEPT failed:', acceptResp.status, acceptResp.statusText, text);
-        // 404 call_id_not_found usually means wrong/expired call_id or accepting too late
+        console.error('❌ ACCEPT failed:', acceptResp.status, acceptResp.statusText, acceptData);
         return res.status(502).send('Accept failed');
       }
 
-      console.log('✅ ACCEPT OK. Preparing WS…');
+      // Prefer ws_url or client_secret if provided
+      let wssUrl;
+      let token = OPENAI_API_KEY; // default
+      if (acceptData?.ws_url) {
+        wssUrl = acceptData.ws_url;
+      } else {
+        wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
+      }
+      if (acceptData?.client_secret?.value) {
+        token = acceptData.client_secret.value;
+      }
 
-      // Connect using the generic WS URL + call_id (per docs and Twilio guide)
-      // Add a small delay to avoid 404 race conditions
-      const wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
-      connectWithDelay(wssUrl, 1000); // 1s
+      console.log('✅ ACCEPT OK. Connecting WS…', { wssUrl, usingEphemeral: token !== OPENAI_API_KEY });
+      connectWithDelay(wssUrl, token, 1200);
 
-      // Echo Authorization (as recommended)
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
       return res.sendStatus(200);
     }
 
-    // Acknowledge other events (e.g., call ended)
     return res.sendStatus(200);
   } catch (err) {
     const msg = String(err?.message ?? '').toLowerCase();
