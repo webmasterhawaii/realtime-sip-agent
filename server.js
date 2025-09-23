@@ -23,7 +23,7 @@ const client = new OpenAI({
 });
 
 // ─────────────────────────────────────────────────────────────
-// Session Config — Web Search only, with correct model
+// Session Config — Web Search only
 // ─────────────────────────────────────────────────────────────
 const systemInstructions = [
   'You are a friendly voice assistant for ACME Internet.',
@@ -35,7 +35,7 @@ const systemInstructions = [
 
 const callAcceptPayload = {
   type: 'realtime',
-  model: 'gpt-4o-realtime-preview-latest',   // ✅ SIP-compatible model
+  model: 'gpt-4o-realtime-preview-2025-06-03', // ✅ try explicit version
   instructions: systemInstructions,
   audio: { output: { voice: 'alloy' } },
   tools: [
@@ -50,7 +50,8 @@ const callAcceptPayload = {
 const initialGreetingEvent = {
   type: 'response.create',
   response: {
-    instructions: "Say: Hello! Thanks for calling ACME Internet support. How can I help you today?"
+    instructions:
+      "Say: Hello! Thanks for calling ACME Internet support. How can I help you today?"
   }
 };
 
@@ -90,7 +91,7 @@ async function websocketTask(wssUrl, authToken) {
   });
 }
 
-function connectWithDelay(wssUrl, authToken, delayMs = 1200) {
+function connectWithDelay(wssUrl, authToken, delayMs = 2500) {
   setTimeout(() => {
     websocketTask(wssUrl, authToken).catch((err) => {
       console.error('WS connect failed:', err);
@@ -124,20 +125,22 @@ app.post('/', async (req, res) => {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'OpenAI-Beta': 'realtime=v1', // ✅ add beta header on accept too
         },
         body: JSON.stringify(callAcceptPayload)
       });
 
       const respText = await acceptResp.text().catch(() => '');
-      let acceptData;
+      let acceptData = null;
       try {
-        acceptData = JSON.parse(respText);
+        acceptData = respText ? JSON.parse(respText) : null;
       } catch {
-        acceptData = null;
+        // leave as null; log raw below
       }
       console.log('📦 ACCEPT status:', acceptResp.status, acceptResp.statusText);
-      console.log('📦 ACCEPT response:', acceptData ?? respText);
+      console.log('📦 ACCEPT raw:', respText || '<empty body>');
+      if (acceptData) console.log('📦 ACCEPT parsed:', acceptData);
 
       if (!acceptResp.ok) {
         console.error('❌ ACCEPT failed');
@@ -151,13 +154,16 @@ app.post('/', async (req, res) => {
       if (acceptData?.ws_url) {
         wssUrl = acceptData.ws_url;
       } else {
-        // fallback as docs suggest
+        // fallback: documented pattern for SIP
         wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
       }
 
-      console.log('✅ ACCEPT OK. Connecting WS with:', { wssUrl, usingEphemeral: token !== OPENAI_API_KEY });
+      console.log('✅ ACCEPT OK. Connecting WS with:', {
+        wssUrl,
+        usingEphemeral: token !== OPENAI_API_KEY,
+      });
 
-      connectWithDelay(wssUrl, token, 1200);
+      connectWithDelay(wssUrl, token, 2500);
 
       // respond HTTP 200 OK
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
