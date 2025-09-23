@@ -35,8 +35,9 @@ const systemInstructions = [
 
 const callAcceptPayload = {
   type: 'realtime',
-  model: 'gpt-4o-realtime-preview-2025-06-03', // ✅ try explicit version
+  model: 'gpt-4o-realtime-preview-2025-06-03', // use explicit SIP-compatible version
   instructions: systemInstructions,
+  modalities: ['audio'], // ✅ added per request
   audio: { output: { voice: 'alloy' } },
   tools: [
     {
@@ -62,7 +63,7 @@ async function websocketTask(wssUrl, authToken) {
   const ws = new WebSocket(wssUrl, {
     headers: {
       origin: 'https://api.openai.com',
-      'OpenAI-Beta': 'realtime=v1',
+      'OpenAI-Beta': 'realtime=v1', // already set
       Authorization: `Bearer ${authToken}`,
     },
   });
@@ -126,7 +127,7 @@ app.post('/', async (req, res) => {
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
-          'OpenAI-Beta': 'realtime=v1', // ✅ add beta header on accept too
+          'OpenAI-Beta': 'realtime=v1', // ensure beta header on accept too
         },
         body: JSON.stringify(callAcceptPayload)
       });
@@ -136,7 +137,7 @@ app.post('/', async (req, res) => {
       try {
         acceptData = respText ? JSON.parse(respText) : null;
       } catch {
-        // leave as null; log raw below
+        // leave as null; raw is logged below
       }
       console.log('📦 ACCEPT status:', acceptResp.status, acceptResp.statusText);
       console.log('📦 ACCEPT raw:', respText || '<empty body>');
@@ -154,7 +155,7 @@ app.post('/', async (req, res) => {
       if (acceptData?.ws_url) {
         wssUrl = acceptData.ws_url;
       } else {
-        // fallback: documented pattern for SIP
+        // fallback: documented SIP pattern
         wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
       }
 
