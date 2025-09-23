@@ -33,20 +33,19 @@ const systemInstructions = [
   'Vary phrasing so it doesn’t sound robotic.',
 ].join('\n');
 
-const tools = [
-  {
-    type: 'web_search',
-    name: 'search',
-    description: 'Search the web for recent information.'
-  }
-];
-
+// Correct realtime preview model
 const callAcceptPayload = {
   type: 'realtime',
-  model: 'gpt-realtime',
+  model: 'gpt-4o-realtime-preview-2024-12-17',
   instructions: systemInstructions,
   audio: { output: { voice: 'alloy' } },
-  tools,
+  tools: [
+    {
+      type: 'web_search',
+      name: 'search',
+      description: 'Search the web for recent information.'
+    }
+  ]
 };
 
 const initialGreetingEvent = {
@@ -133,19 +132,16 @@ app.post('/', async (req, res) => {
         return res.status(502).send('Accept failed');
       }
 
-      // Prefer ws_url or client_secret if provided
-      let wssUrl;
-      let token = OPENAI_API_KEY; // default
-      if (acceptData?.ws_url) {
-        wssUrl = acceptData.ws_url;
-      } else {
-        wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
-      }
-      if (acceptData?.client_secret?.value) {
-        token = acceptData.client_secret.value;
-      }
+      // Use ws_url/client_secret if provided
+      let wssUrl = acceptData?.ws_url
+        ? acceptData.ws_url
+        : `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
+      let token = acceptData?.client_secret?.value || OPENAI_API_KEY;
 
-      console.log('✅ ACCEPT OK. Connecting WS…', { wssUrl, usingEphemeral: token !== OPENAI_API_KEY });
+      console.log('✅ ACCEPT OK. Connecting WS…', {
+        wssUrl,
+        usingEphemeral: token !== OPENAI_API_KEY,
+      });
       connectWithDelay(wssUrl, token, 1200);
 
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
