@@ -5,15 +5,15 @@ import OpenAI from 'openai';
 import fetch from 'node-fetch';
 import 'dotenv/config';
 
-// ─────────────────────────────────────────────
-// Env
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Environment & Checks
+// ─────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT ?? 8000);
 const WEBHOOK_SECRET = process.env.OPENAI_WEBHOOK_SECRET;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 if (!WEBHOOK_SECRET || !OPENAI_API_KEY) {
-  console.error('Missing OPENAI_WEBHOOK_SECRET or OPENAI_API_KEY');
+  console.error('ERROR: Missing OPENAI_WEBHOOK_SECRET or OPENAI_API_KEY');
   process.exit(1);
 }
 
@@ -22,9 +22,9 @@ const client = new OpenAI({
   webhookSecret: WEBHOOK_SECRET,
 });
 
-// ─────────────────────────────────────────────
-// Session config (Web Search only)
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Session Config — Web Search only, with correct model
+// ─────────────────────────────────────────────────────────────
 const systemInstructions = [
   'You are a friendly voice assistant for ACME Internet.',
   'Respond concisely and helpfully.',
@@ -33,7 +33,6 @@ const systemInstructions = [
   'Vary phrasing so it doesn’t sound robotic.',
 ].join('\n');
 
-// Correct realtime preview model
 const callAcceptPayload = {
   type: 'realtime',
   model: 'gpt-4o-realtime-preview-2024-12-17',
@@ -55,9 +54,9 @@ const initialGreetingEvent = {
   }
 };
 
-// ─────────────────────────────────────────────
-// WebSocket
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// WebSocket Handling
+// ─────────────────────────────────────────────────────────────
 async function websocketTask(wssUrl, authToken) {
   const ws = new WebSocket(wssUrl, {
     headers: {
@@ -68,35 +67,40 @@ async function websocketTask(wssUrl, authToken) {
   });
 
   ws.on('open', () => {
-    console.log('🔌 Realtime WS opened:', wssUrl);
+    console.log('🔌 WebSocket opened:', wssUrl);
     ws.send(JSON.stringify(initialGreetingEvent));
   });
 
   ws.on('message', (data) => {
-    const text = typeof data === 'string' ? data : data.toString('utf8');
+    const msg = typeof data === 'string' ? data : data.toString('utf8');
     try {
-      const evt = JSON.parse(text);
-      if (evt?.type) console.log('📥 Realtime event:', evt.type);
-    } catch (e) {
-      console.warn('Unable to parse WS message:', e);
+      const evt = JSON.parse(msg);
+      console.log('📥 WS event type:', evt?.type);
+    } catch (err) {
+      console.warn('⚠️ WS message parse error:', err);
     }
   });
 
-  ws.on('error', (err) => console.error('WS error:', err));
-  ws.on('close', (code, reason) =>
-    console.log('🔒 WS closed:', code, reason?.toString?.() ?? '')
-  );
+  ws.on('error', (err) => {
+    console.error('🔴 WS error:', err);
+  });
+
+  ws.on('close', (code, reason) => {
+    console.log('🔒 WS closed:', code, reason?.toString() ?? '');
+  });
 }
 
-function connectWithDelay(wssUrl, authToken, delayMs = 1000) {
+function connectWithDelay(wssUrl, authToken, delayMs = 1200) {
   setTimeout(() => {
-    websocketTask(wssUrl, authToken).catch((e) => console.error('WS connect failed:', e));
+    websocketTask(wssUrl, authToken).catch((err) => {
+      console.error('WS connect failed:', err);
+    });
   }, delayMs);
 }
 
-// ─────────────────────────────────────────────
-// Express
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Express + Webhook Endpoint
+// ─────────────────────────────────────────────────────────────
 const app = express();
 app.use(bodyParser.raw({ type: 'application/json' }));
 
@@ -104,46 +108,58 @@ app.post('/', async (req, res) => {
   try {
     const rawBody = req.body.toString('utf8');
     const event = await client.webhooks.unwrap(rawBody, req.headers);
-    const type = event?.type;
-    console.log('🔔 Webhook event:', type);
+    console.log('🔔 Webhook event:', event?.type);
 
-    if (type === 'realtime.call.incoming') {
+    if (event?.type === 'realtime.call.incoming') {
       const callId = event?.data?.call_id;
       console.log('📞 Incoming call_id:', callId);
 
-      if (!callId) return res.status(400).send('Missing call_id');
+      if (!callId) {
+        console.error('Missing call_id');
+        return res.status(400).send('Missing call_id');
+      }
 
-      // Accept
       const acceptUrl = `https://api.openai.com/v1/realtime/calls/${encodeURIComponent(callId)}/accept`;
       const acceptResp = await fetch(acceptUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(callAcceptPayload),
+        body: JSON.stringify(callAcceptPayload)
       });
 
-      const acceptData = await acceptResp.json().catch(() => ({}));
-      console.log('📦 ACCEPT response JSON:', acceptData);
+      const respText = await acceptResp.text().catch(() => '');
+      let acceptData;
+      try {
+        acceptData = JSON.parse(respText);
+      } catch {
+        acceptData = null;
+      }
+      console.log('📦 ACCEPT status:', acceptResp.status, acceptResp.statusText);
+      console.log('📦 ACCEPT response:', acceptData ?? respText);
 
       if (!acceptResp.ok) {
-        console.error('❌ ACCEPT failed:', acceptResp.status, acceptResp.statusText, acceptData);
+        console.error('❌ ACCEPT failed');
         return res.status(502).send('Accept failed');
       }
 
-      // Use ws_url/client_secret if provided
-      let wssUrl = acceptData?.ws_url
-        ? acceptData.ws_url
-        : `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
-      let token = acceptData?.client_secret?.value || OPENAI_API_KEY;
+      // Determine WS connection info
+      let wssUrl, token;
+      token = acceptData?.client_secret?.value || OPENAI_API_KEY;
 
-      console.log('✅ ACCEPT OK. Connecting WS…', {
-        wssUrl,
-        usingEphemeral: token !== OPENAI_API_KEY,
-      });
+      if (acceptData?.ws_url) {
+        wssUrl = acceptData.ws_url;
+      } else {
+        // fallback as docs suggest
+        wssUrl = `wss://api.openai.com/v1/realtime?call_id=${encodeURIComponent(callId)}`;
+      }
+
+      console.log('✅ ACCEPT OK. Connecting WS with:', { wssUrl, usingEphemeral: token !== OPENAI_API_KEY });
+
       connectWithDelay(wssUrl, token, 1200);
 
+      // respond HTTP 200 OK
       res.set('Authorization', `Bearer ${OPENAI_API_KEY}`);
       return res.sendStatus(200);
     }
@@ -160,6 +176,9 @@ app.post('/', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Start
+// ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`📞 Realtime SIP agent (Web Search) listening on :${PORT}`);
 });
